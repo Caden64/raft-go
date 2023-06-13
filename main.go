@@ -15,7 +15,16 @@ const (
 )
 
 func main() {
-	_ = NewServer(true)
+	s := NewServer(true)
+
+	for {
+		select {
+		case <-s.Timeout.C:
+			if s.VotedFor == 0 {
+				s.BecomeCandidate()
+			}
+		}
+	}
 
 }
 
@@ -24,6 +33,7 @@ type Server struct {
 	Id          int
 	CurrentTerm int
 	VotedFor    int
+	VoteTerm    int
 	Log         []LogEntry
 	CommitIndex int
 	LastApplied int
@@ -46,14 +56,16 @@ type RequestVote struct {
 	LastLogTerm  int
 }
 
-type AppendLog struct {
-	Term         int
-	LeaderId     int
-	PrevLogIndex int
-	PrevLogTerm  int
-	Entries      LogEntry
-	LeaderCommit int
-}
+/*
+	type AppendLog struct {
+		Term         int
+		LeaderId     int
+		PrevLogIndex int
+		PrevLogTerm  int
+		Entries      LogEntry
+		LeaderCommit int
+	}
+*/
 
 type Response struct {
 	Term        int
@@ -70,6 +82,7 @@ func NewServer(BootStrap bool) Server {
 		Id:          rn,
 		CurrentTerm: 0,
 		VotedFor:    0,
+		VoteTerm:    0,
 		Log:         []LogEntry{},
 		CommitIndex: 0,
 		LastApplied: 0,
@@ -86,9 +99,18 @@ func (s *Server) ReceiveVote(request RequestVote) Response {
 			s.CurrentTerm,
 			false,
 		}
-	} // else if s.VotedFor != 0 ||
+	} else if s.VotedFor != 0 && s.VoteTerm < request.Term {
+		return Response{
+			s.CurrentTerm,
+			false,
+		}
+	}
 	return Response{
 		s.CurrentTerm,
 		false,
 	}
+}
+
+func (s *Server) BecomeCandidate() {
+
 }
