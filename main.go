@@ -19,9 +19,13 @@ func main() {
 	s1 := NewServer()
 	election := s1.StartElection()
 	s2 := NewServer()
-	fmt.Println(s2.GiveElectionVote(election))
-	s3 := NewServer()
-	fmt.Println(s3.GiveElectionVote(election))
+	s2Vote := s2.GiveElectionVote(election)
+	// s3 := NewServer()
+	// s3Vote := s3.GiveElectionVote(election)
+	sc := new(serverCounter)
+	fmt.Println(sc)
+	sc.AddServerCount(3)
+	fmt.Println(s1.PromoteLeader(sc, s2Vote))
 	/*
 		main:
 			for {
@@ -48,6 +52,7 @@ type Server struct {
 	MatchIndex  []int
 	Timeout     *time.Ticker
 	State       ServerState
+	ServerCount int
 }
 
 type RequestVote struct {
@@ -84,7 +89,7 @@ func NewServer() Server {
 		VotedFor:    0,
 		VoteTerm:    0,
 		Log:         []int{},
-		CommitIndex: 0,
+		CommitIndex: 1,
 		LastApplied: 0,
 		NextIndex:   []int{},
 		MatchIndex:  []int{},
@@ -133,4 +138,43 @@ func (s *Server) StartElection() RequestVote {
 		LastLogIndex: len(s.Log) + 1,
 		LastLogTerm:  -1,
 	}
+}
+
+func (s *Server) PromoteLeader(sc ServerCount, responses ...Response) bool {
+	total := sc.TotalServerCount()
+	totalVotes := 0
+	for _, response := range responses {
+		if response.VoteGranted {
+			totalVotes++
+		}
+	}
+
+	if totalVotes > total/2 {
+		s.State = Leader
+		return true
+	}
+	return false
+}
+
+type serverCounter struct {
+	totalServers int
+}
+
+func (sc *serverCounter) TotalServerCount() int {
+	return sc.totalServers
+}
+
+func (sc *serverCounter) AddServerCount(num int) {
+	sc.totalServers += num
+}
+
+func (sc *serverCounter) RemoveServers(num int) {
+	if sc.totalServers-num <= 0 {
+		return
+	}
+	sc.totalServers -= num
+}
+
+type ServerCount interface {
+	TotalServerCount() int
 }
