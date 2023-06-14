@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"time"
@@ -15,38 +16,38 @@ const (
 )
 
 func main() {
-	s := NewServer(true)
-main:
-	for {
-		select {
-		case <-s.Timeout.C:
-			if s.VotedFor == 0 {
-				s.StartElection()
-				break main
+	s1 := NewServer()
+	election := s1.StartElection()
+	s2 := NewServer()
+	fmt.Println(s2.GiveElectionVote(election))
+	s3 := NewServer()
+	fmt.Println(s3.GiveElectionVote(election))
+	/*
+		main:
+			for {
+				select {
+				case <-s1.Timeout.C:
+					if s1.VotedFor == 0 {
+						s1.StartElection()
+						break main
+					}
+				}
 			}
-		}
-	}
+	*/
 }
 
 type Server struct {
-	BootStrap   bool
 	Id          int
 	CurrentTerm int
 	VotedFor    int
 	VoteTerm    int
-	Log         []LogEntry
+	Log         []int
 	CommitIndex int
 	LastApplied int
 	NextIndex   []int
 	MatchIndex  []int
 	Timeout     *time.Ticker
 	State       ServerState
-}
-
-type LogEntry struct {
-	Term  int
-	Index int
-	Data  int
 }
 
 type RequestVote struct {
@@ -72,18 +73,17 @@ type Response struct {
 	VoteGranted bool
 }
 
-func NewServer(BootStrap bool) Server {
+func NewServer() Server {
 	rn := rand.Intn(math.MaxInt)
 	for rn == 0 {
 		rn = rand.Intn(math.MaxInt)
 	}
 	return Server{
-		BootStrap:   BootStrap,
 		Id:          rn,
 		CurrentTerm: 0,
 		VotedFor:    0,
 		VoteTerm:    0,
-		Log:         []LogEntry{},
+		Log:         []int{},
 		CommitIndex: 0,
 		LastApplied: 0,
 		NextIndex:   []int{},
@@ -93,21 +93,26 @@ func NewServer(BootStrap bool) Server {
 	}
 }
 
-func (s *Server) ReceiveVote(request RequestVote) Response {
-	if request.Term <= s.CurrentTerm {
-		return Response{
-			s.CurrentTerm,
-			false,
+func (s *Server) GiveElectionVote(request RequestVote) Response {
+	var lastLogTerm bool
+
+	if len(s.Log) > 0 && request.LastLogIndex > 1 {
+		if s.Log[len(s.Log)-1] == request.LastLogTerm {
+			lastLogTerm = true
 		}
-	} else if s.VotedFor != 0 && s.VoteTerm <= request.Term {
+	} else if request.LastLogIndex == 1 {
+		lastLogTerm = true
+	}
+	if request.Term <= s.CurrentTerm || (s.VotedFor != 0 && (s.VoteTerm <= request.Term || request.LastLogIndex != len(s.Log)+1 || !lastLogTerm)) {
 		return Response{
 			s.CurrentTerm,
 			false,
 		}
 	}
+
 	return Response{
-		s.CurrentTerm,
-		false,
+		request.Term,
+		true,
 	}
 }
 
@@ -119,7 +124,7 @@ func (s *Server) StartElection() RequestVote {
 			Term:         s.CurrentTerm,
 			CandidateId:  s.Id,
 			LastLogIndex: len(s.Log) + 1,
-			LastLogTerm:  s.Log[len(s.Log)-1].Term,
+			LastLogTerm:  s.Log[len(s.Log)-1],
 		}
 	}
 	return RequestVote{
