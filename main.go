@@ -16,16 +16,16 @@ const (
 
 func main() {
 	s := NewServer(true)
-
+main:
 	for {
 		select {
 		case <-s.Timeout.C:
 			if s.VotedFor == 0 {
-				s.BecomeCandidate()
+				s.StartElection()
+				break main
 			}
 		}
 	}
-
 }
 
 type Server struct {
@@ -94,12 +94,12 @@ func NewServer(BootStrap bool) Server {
 }
 
 func (s *Server) ReceiveVote(request RequestVote) Response {
-	if request.Term < s.CurrentTerm {
+	if request.Term <= s.CurrentTerm {
 		return Response{
 			s.CurrentTerm,
 			false,
 		}
-	} else if s.VotedFor != 0 && s.VoteTerm < request.Term {
+	} else if s.VotedFor != 0 && s.VoteTerm <= request.Term {
 		return Response{
 			s.CurrentTerm,
 			false,
@@ -111,6 +111,21 @@ func (s *Server) ReceiveVote(request RequestVote) Response {
 	}
 }
 
-func (s *Server) BecomeCandidate() {
-
+func (s *Server) StartElection() RequestVote {
+	s.State = Candidate
+	s.CurrentTerm++
+	if len(s.Log) > 0 {
+		return RequestVote{
+			Term:         s.CurrentTerm,
+			CandidateId:  s.Id,
+			LastLogIndex: len(s.Log) + 1,
+			LastLogTerm:  s.Log[len(s.Log)-1].Term,
+		}
+	}
+	return RequestVote{
+		Term:         s.CurrentTerm,
+		CandidateId:  s.Id,
+		LastLogIndex: len(s.Log) + 1,
+		LastLogTerm:  -1,
+	}
 }
