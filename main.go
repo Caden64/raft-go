@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"os"
@@ -21,12 +22,19 @@ func main() {
 	s1 := NewServer("A")
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+	sc := new(ServerHelper)
+	s2 := NewServer("B")
+	s3 := NewServer("C")
+	sc.AddServerCount(&s2)
+	sc.AddServerCount(&s3)
 main:
 	for {
 		select {
 		case <-s1.Timeout.C:
 			if s1.VotedFor == 0 {
-				s1.StartElection()
+				rv := s1.StartElection()
+				responses := sc.SendRequestVote(rv)
+				s1.PromoteLeader(sc, responses...)
 				break main
 			}
 		case <-sig:
@@ -148,6 +156,7 @@ func (s *Server) PromoteLeader(sc ServerCount, responses ...VoteResponse) bool {
 
 	if totalVotes > total/2 {
 		s.State = Leader
+		fmt.Println("Leader")
 		return true
 	}
 	return false
