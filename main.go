@@ -1,9 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -16,31 +18,25 @@ const (
 )
 
 func main() {
-	s1 := NewServer()
-	election := s1.StartElection()
-	s2 := NewServer()
-	s2Vote := s2.GiveElectionVote(election)
-	// s3 := NewServer()
-	// s3Vote := s3.GiveElectionVote(election)
-	sc := new(serverCounter)
-	fmt.Println(sc)
-	sc.AddServerCount(3)
-	fmt.Println(s1.PromoteLeader(sc, s2Vote))
-	/*
-		main:
-			for {
-				select {
-				case <-s1.Timeout.C:
-					if s1.VotedFor == 0 {
-						s1.StartElection()
-						break main
-					}
-				}
+	s1 := NewServer("A")
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+main:
+	for {
+		select {
+		case <-s1.Timeout.C:
+			if s1.VotedFor == 0 {
+				s1.StartElection()
+				break main
 			}
-	*/
+		case <-sig:
+			break main
+		}
+	}
 }
 
 type Server struct {
+	Name        string
 	Id          int
 	CurrentTerm int
 	VotedFor    int
@@ -68,29 +64,30 @@ type RequestVote struct {
 		LeaderId     int
 		PrevLogIndex int
 		PrevLogTerm  int
-		Entries      LogEntry
+		Entries      []int
 		LeaderCommit int
 	}
 */
 
-type Response struct {
+type VoteResponse struct {
 	Term        int
 	VoteGranted bool
 }
 
-func NewServer() Server {
+func NewServer(name string) Server {
 	rn := rand.Intn(math.MaxInt)
 	for rn == 0 {
 		rn = rand.Intn(math.MaxInt)
 	}
 	return Server{
+		Name:        name,
 		Id:          rn,
 		CurrentTerm: 0,
 		VotedFor:    0,
 		VoteTerm:    0,
 		Log:         []int{},
 		CommitIndex: 1,
-		LastApplied: 0,
+		LastApplied: 1,
 		NextIndex:   []int{},
 		MatchIndex:  []int{},
 		Timeout:     time.NewTicker(time.Millisecond * time.Duration(rand.Intn(999))),
@@ -98,7 +95,7 @@ func NewServer() Server {
 	}
 }
 
-func (s *Server) GiveElectionVote(request RequestVote) Response {
+func (s *Server) GiveElectionVote(request RequestVote) VoteResponse {
 	var lastLogTerm bool
 
 	if len(s.Log) > 0 && request.LastLogIndex > 1 {
@@ -109,13 +106,13 @@ func (s *Server) GiveElectionVote(request RequestVote) Response {
 		lastLogTerm = true
 	}
 	if request.Term <= s.CurrentTerm || (s.VotedFor != 0 && (s.VoteTerm <= request.Term || request.LastLogIndex != len(s.Log)+1 || !lastLogTerm)) {
-		return Response{
+		return VoteResponse{
 			s.CurrentTerm,
 			false,
 		}
 	}
 
-	return Response{
+	return VoteResponse{
 		request.Term,
 		true,
 	}
@@ -140,7 +137,7 @@ func (s *Server) StartElection() RequestVote {
 	}
 }
 
-func (s *Server) PromoteLeader(sc ServerCount, responses ...Response) bool {
+func (s *Server) PromoteLeader(sc ServerCount, responses ...VoteResponse) bool {
 	total := sc.TotalServerCount()
 	totalVotes := 0
 	for _, response := range responses {
@@ -156,25 +153,36 @@ func (s *Server) PromoteLeader(sc ServerCount, responses ...Response) bool {
 	return false
 }
 
-type serverCounter struct {
-	totalServers int
+type ServerHelper struct {
+	Servers []*Server
 }
 
-func (sc *serverCounter) TotalServerCount() int {
-	return sc.totalServers
+func (sc *ServerHelper) TotalServerCount() int {
+	return len(sc.Servers)
 }
 
-func (sc *serverCounter) AddServerCount(num int) {
-	sc.totalServers += num
+func (sc *ServerHelper) AddServerCount(server *Server) {
+	sc.Servers = append(sc.Servers, server)
 }
 
-func (sc *serverCounter) RemoveServers(num int) {
-	if sc.totalServers-num <= 0 {
-		return
+func (sc *ServerHelper) RemoveServer(index int) {
+	if sc.TotalServerCount() > index && index >= 0 {
+		sc.Servers[index] = sc.Servers[len(sc.Servers)-1]
+		sc.Servers = sc.Servers[:len(sc.Servers)-1]
 	}
-	sc.totalServers -= num
+}
+
+func (sc *ServerHelper) SendRequestVote(request RequestVote) (VoteResponse []VoteResponse) {
+	for _, server := range sc.Servers {
+		VoteResponse = append(VoteResponse, server.GiveElectionVote(request))
+	}
+	return VoteResponse
 }
 
 type ServerCount interface {
 	TotalServerCount() int
+}
+
+type serverContact interface {
+	SendRequestVote(vote RequestVote) []VoteResponse
 }
