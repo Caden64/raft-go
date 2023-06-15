@@ -33,7 +33,7 @@ main:
 		case <-s1.Timeout.C:
 			if s1.VotedFor == 0 {
 				rv := s1.StartElection()
-				responses := sc.SendRequestVote(rv)
+				responses := s1.SendElection(sc, rv)
 				s1.PromoteLeader(sc, responses...)
 				break main
 			}
@@ -143,6 +143,10 @@ func (s *Server) StartElection() RequestVote {
 		LastLogIndex: len(s.Log) + 1,
 		LastLogTerm:  -1,
 	}
+}
+
+func (s *Server) SendElection(sc serverContact, rv RequestVote) []VoteResponse {
+	return sc.SendRequestVote(rv)
 }
 
 func (s *Server) PromoteLeader(sc ServerCount, responses ...VoteResponse) bool {
