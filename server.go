@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-type ServerState int
+type State int
 
 const (
-	Follower ServerState = iota
+	Follower State = iota
 	Candidate
 	Leader
 )
@@ -28,7 +28,7 @@ type Server struct {
 	MatchIndex      []int
 	Timeout         *time.Ticker
 	TimeOutDuration time.Duration
-	State           ServerState
+	State           State
 	ServerCount     int
 }
 
