@@ -16,18 +16,45 @@ func main() {
 	s3 := server.NewServer("C")
 	sc.AddServerCount(&s2)
 	sc.AddServerCount(&s3)
+	dc := make(chan bool)
+	go RunServer(&s1, sc, dc)
+	go RunServer(&s2, sc, dc)
+	go RunServer(&s3, sc, dc)
 main:
 	for {
 		select {
-		case <-s1.Timeout.C:
-			if s1.VotedFor == 0 {
-				rv := s1.StartElection()
-				responses := s1.SendElection(sc, rv)
-				s1.PromoteLeader(sc, responses...)
-				break main
-			}
 		case <-sig:
+			dc <- true
 			break main
+		}
+	}
+}
+
+func RunServer(s *server.Server, sh *ServerHelper, doneChan chan bool) {
+run:
+	for {
+		select {
+		case <-doneChan:
+			break run
+		case <-s.Timeout.C:
+			if s.State == server.Follower {
+				if s.VotedFor == 0 {
+					rv := s.StartElection()
+					responses := s.SendElection(sh, rv)
+					s.PromoteLeader(sh, responses...)
+					hb := server.AppendLog{
+						Term:         s.CurrentTerm,
+						LeaderId:     s.Id,
+						PrevLogIndex: s.CommitIndex,
+						PrevLogTerm:  s.LastApplied,
+						Entries:      []int{},
+						LeaderCommit: 0,
+					}
+					s.SendLog(sh, hb)
+				}
+			} else if s.State == server.Leader {
+
+			}
 		}
 	}
 }
@@ -51,9 +78,16 @@ func (sc *ServerHelper) RemoveServer(index int) {
 	}
 }
 
-func (sc *ServerHelper) SendRequestVote(request server.RequestVote) (VoteResponse []server.VoteResponse) {
+func (sc *ServerHelper) SendRequestVote(request server.RequestVote) (VoteResponse []server.Response) {
 	for _, s := range sc.Servers {
 		VoteResponse = append(VoteResponse, s.GiveElectionVote(request))
 	}
 	return VoteResponse
+}
+
+func (sc *ServerHelper) SendAppendLog(log server.AppendLog) (CommitResponse []server.Response) {
+	for _, s := range sc.Servers {
+		CommitResponse = append(CommitResponse, s.ReceiveLog(log))
+	}
+	return CommitResponse
 }
