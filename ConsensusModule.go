@@ -1,6 +1,9 @@
 package raft
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 type ConsensusModuleState int
 
@@ -51,26 +54,37 @@ type AppendEntries[j any] struct {
 }
 type Contact[j any] interface {
 	GetPeerIds() []uint
-	RequestVote(vote RequestVote) ([]Reply, error)
-	AppendEntry(entries AppendEntries[j]) ([]Reply, error)
+	RequestVotes(vote RequestVote) ([]Reply, error)
+	AppendEntries(entries AppendEntries[j]) ([]Reply, error)
 }
 
 type ConsensusModule[j any] struct {
-	mutex sync.Mutex
-	id    uint
-	state ConsensusModuleState
+	Mutex sync.Mutex
+	Id    uint
+	// Volatile state in memory
+	State          ConsensusModuleState
+	Ticker         *time.Ticker
+	TickerDuration time.Duration
 
 	Contact[j]
 
-	Log []LogEntry[j]
+	// Persistent state in memory
+	CurrentTerm uint
+	VotedFor    int
+	Log         []LogEntry[j]
 }
 
-func (receiver *ConsensusModule[j]) Get(index int) LogEntry[j] {
-	return receiver.Log[index]
+func (c *ConsensusModule[j]) ResetTicker() {
+	c.Ticker = time.NewTicker(c.TickerDuration)
+}
+func (c *ConsensusModule[j]) Get(index int) LogEntry[j] {
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+	return c.Log[index]
 }
 
-func (receiver *ConsensusModule[j]) Set(values []LogEntry[j]) {
-	receiver.mutex.Lock()
-	defer receiver.mutex.Unlock()
-	receiver.Log = append(receiver.Log, values...)
+func (c *ConsensusModule[j]) Set(values []LogEntry[j]) {
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+	c.Log = append(c.Log, values...)
 }
