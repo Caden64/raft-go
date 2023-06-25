@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"math/rand"
 	"sync"
 	"time"
 )
@@ -87,4 +88,22 @@ func (c *ConsensusModule[j]) Set(values []LogEntry[j]) {
 	c.Mutex.Lock()
 	defer c.Mutex.Unlock()
 	c.Log = append(c.Log, values...)
+}
+
+func (c *ConsensusModule[j]) SetTicker() {
+	if c.State != Leader {
+		ri := rand.Intn(500)
+		for ri < 250 {
+			ri = rand.Intn(500)
+		}
+		c.TickerDuration = time.Duration(ri) * time.Millisecond
+	} else {
+		ri := rand.Intn(150)
+		for ri < 50 {
+			ri = rand.Intn(150)
+		}
+		c.TickerDuration = time.Duration(ri) * time.Millisecond
+	}
+
+	c.ResetTicker()
 }
