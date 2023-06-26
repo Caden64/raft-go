@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"fmt"
 	"math/rand"
 	"sync"
 	"time"
@@ -49,14 +50,13 @@ type AppendEntries[j any] struct {
 	LeaderId uint
 
 	PrevLogIndex uint
-	PrevLogTerm  uint
+	PrevLogTerm  j
 	Entries      []LogEntry[j]
-	LeaderCommit uint
 }
 type Contact[j any] interface {
 	GetPeerIds() []uint
 	RequestVotes(vote RequestVote[*j]) ([]Reply, error)
-	AppendEntries(entries AppendEntries[j]) ([]Reply, error)
+	AppendEntries(entries AppendEntries[*j]) ([]Reply, error)
 }
 
 type ConsensusModule[j any] struct {
@@ -115,25 +115,59 @@ main:
 		case <-done:
 			break main
 		case <-c.Ticker.C:
-			var serverRequestVote RequestVote[*j]
-			if len(c.Log) == 0 {
-				serverRequestVote = RequestVote[*j]{
-					Term:         c.CurrentTerm + 1,
-					CandidateId:  c.Id,
-					LastLogIndex: 1,
-					LastLogTerm:  new(j),
+			if c.State == Follower {
+				fmt.Println("Becoming Candidate")
+				c.State = Candidate
+				c.CurrentTerm++
+				var serverRequestVote RequestVote[*j]
+				if len(c.Log) == 0 {
+					serverRequestVote = RequestVote[*j]{
+						Term:         c.CurrentTerm,
+						CandidateId:  c.Id,
+						LastLogIndex: 1,
+						LastLogTerm:  new(j),
+					}
+				} else {
+					serverRequestVote = RequestVote[*j]{
+						Term:         c.CurrentTerm,
+						CandidateId:  c.Id,
+						LastLogIndex: uint(len(c.Log) + 1),
+						LastLogTerm:  &c.Log[len(c.Log)-1].Command,
+					}
 				}
-			} else {
-				serverRequestVote = RequestVote[*j]{
-					Term:         c.CurrentTerm + 1,
-					CandidateId:  c.Id,
-					LastLogIndex: uint(len(c.Log) + 1),
-					LastLogTerm:  &c.Log[len(c.Log)-1].Command,
+				votes, err := c.Contact.RequestVotes(serverRequestVote)
+				fmt.Println("Requested Votes")
+				if err != nil {
+					panic(err)
 				}
-			}
-			_, err := c.Contact.RequestVotes(serverRequestVote)
-			if err != nil {
-				panic(err)
+				if len(votes) > len(c.Contact.GetPeerIds())/2 {
+					fmt.Println("Valid Quorum")
+					var heartBeat AppendEntries[*j]
+					if len(c.Log) == 0 {
+						heartBeat = AppendEntries[*j]{
+							Term:         c.CurrentTerm,
+							LeaderId:     c.Id,
+							PrevLogIndex: 1,
+							PrevLogTerm:  new(j),
+							Entries:      []LogEntry[*j]{},
+						}
+					} else {
+						heartBeat = AppendEntries[*j]{
+							Term:         c.CurrentTerm,
+							LeaderId:     c.Id,
+							PrevLogIndex: uint(len(c.Log) + 1),
+							PrevLogTerm:  &c.Log[len(c.Log)-1].Command,
+							Entries:      []LogEntry[*j]{},
+						}
+					}
+					_, err = c.Contact.AppendEntries(heartBeat)
+					if err != nil {
+						return
+					}
+				} else {
+					fmt.Println("Invalid Quorum")
+					break
+				}
 			}
 		}
 	}
