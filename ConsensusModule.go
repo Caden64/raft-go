@@ -32,11 +32,11 @@ type LogEntry[j any] struct {
 	Term    uint
 }
 
-type RequestVote struct {
+type RequestVote[j any] struct {
 	Term         uint
 	CandidateId  uint
 	LastLogIndex uint
-	LastLogTerm  uint
+	LastLogTerm  j
 }
 
 type Reply struct {
@@ -55,7 +55,7 @@ type AppendEntries[j any] struct {
 }
 type Contact[j any] interface {
 	GetPeerIds() []uint
-	RequestVotes(vote RequestVote) ([]Reply, error)
+	RequestVotes(vote RequestVote[*j]) ([]Reply, error)
 	AppendEntries(entries AppendEntries[j]) ([]Reply, error)
 }
 
@@ -106,4 +106,35 @@ func (c *ConsensusModule[j]) SetTicker() {
 	}
 
 	c.ResetTicker()
+}
+
+func (c *ConsensusModule[j]) RunServer(done <-chan any) {
+main:
+	for {
+		select {
+		case <-done:
+			break main
+		case <-c.Ticker.C:
+			var serverRequestVote RequestVote[*j]
+			if len(c.Log) == 0 {
+				serverRequestVote = RequestVote[*j]{
+					Term:         c.CurrentTerm + 1,
+					CandidateId:  c.Id,
+					LastLogIndex: 1,
+					LastLogTerm:  new(j),
+				}
+			} else {
+				serverRequestVote = RequestVote[*j]{
+					Term:         c.CurrentTerm + 1,
+					CandidateId:  c.Id,
+					LastLogIndex: uint(len(c.Log) + 1),
+					LastLogTerm:  &c.Log[len(c.Log)-1].Command,
+				}
+			}
+			_, err := c.Contact.RequestVotes(serverRequestVote)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
 }
