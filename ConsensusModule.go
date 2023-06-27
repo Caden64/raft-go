@@ -2,7 +2,6 @@ package raft
 
 import (
 	"math/rand"
-	"raft-go/interfaces"
 	"sync"
 	"time"
 )
@@ -14,6 +13,12 @@ const (
 	Candidate
 	Leader
 )
+
+type Contact[j any, k any] interface {
+	GetPeerIds() []uint
+	RequestVotes(vote RequestVote[j]) []Reply
+	AppendEntries(entries AppendEntries[j]) []Reply
+}
 
 func (s ConsensusModuleState) String() string {
 	switch s {
@@ -65,7 +70,7 @@ type ConsensusModule[j any, k any] struct {
 
 	ReceiveChan *chan k
 
-	Contact interfaces.Contact[j]
+	Contact Contact[j, k]
 
 	// Persistent state in memory
 	CurrentTerm uint
@@ -73,7 +78,7 @@ type ConsensusModule[j any, k any] struct {
 	Log         []LogEntry[j]
 }
 
-func NewConsensusModule[j any, k any](contact Contact[j]) *ConsensusModule[j, k] {
+func NewConsensusModule[j any, k any](contact Contact[j, k]) *ConsensusModule[j, k] {
 	cm := &ConsensusModule[j, k]{
 		Mutex: new(sync.Mutex),
 		Id:    uint(rand.Uint64()),
@@ -124,14 +129,14 @@ func (c *ConsensusModule[j, k]) SetTicker() {
 	c.ResetTicker()
 }
 
-func (c *ConsensusModule[j, k]) Vote(request RequestVote[j]) Reply {
+func (c *ConsensusModule[j, k]) Vote(_ RequestVote[j]) Reply {
 	return Reply{
 		Term:        c.CurrentTerm,
 		VoteGranted: true,
 	}
 }
 
-func (c *ConsensusModule[j, k]) AppendEntry(entry AppendEntries[j]) Reply {
+func (c *ConsensusModule[j, k]) AppendEntry(_ AppendEntries[j]) Reply {
 	return Reply{
 		Term:        c.CurrentTerm,
 		VoteGranted: true,

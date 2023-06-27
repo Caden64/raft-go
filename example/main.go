@@ -7,7 +7,7 @@ import (
 
 func main() {
 	cl := new(ContactLol[string, bool])
-	s1 := raft.NewConsensusModule(cl)
+	s1 := raft.NewConsensusModule[string, bool](cl)
 	s1.RunServer(cl.Done)
 }
 
@@ -60,7 +60,7 @@ func (c *ContactLol[j, k]) RequestVotes(vote raft.RequestVote[j]) []raft.Reply {
 	return replies
 }
 
-func (c *ContactLol[j, k]) AppendEntries(entry raft.AppendEntries[j]) []raft.Reply {
+func (c *ContactLol[j, k]) AppendEntries(entries raft.AppendEntries[j]) []raft.Reply {
 	var replies []raft.Reply
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -73,7 +73,7 @@ func (c *ContactLol[j, k]) AppendEntries(entry raft.AppendEntries[j]) []raft.Rep
 			defer mu.Unlock()
 			defer wg.Done()
 			defer mu.Lock()
-			appendResponse := cm.AppendEntry(entry)
+			appendResponse := cm.AppendEntry(entries)
 			replies = append(replies, appendResponse)
 		}(peer)
 	}
