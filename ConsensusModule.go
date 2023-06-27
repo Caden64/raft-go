@@ -2,6 +2,7 @@ package raft
 
 import (
 	"math/rand"
+	"raft-go/interfaces"
 	"sync"
 	"time"
 )
@@ -53,21 +54,18 @@ type AppendEntries[j any] struct {
 	Entries      []LogEntry[j]
 	LeaderCommit uint
 }
-type Contact[j any] interface {
-	GetPeerIds() []uint
-	RequestVotes(vote RequestVote[*j]) ([]Reply, error)
-	AppendEntries(entries AppendEntries[j]) ([]Reply, error)
-}
 
-type ConsensusModule[j any] struct {
-	Mutex sync.Mutex
+type ConsensusModule[j any, k any] struct {
+	Mutex *sync.Mutex
 	Id    uint
 	// Volatile state in memory
 	State          ConsensusModuleState
 	Ticker         *time.Ticker
 	TickerDuration time.Duration
 
-	Contact[j]
+	ReceiveChan *chan k
+
+	Contact interfaces.Contact[j]
 
 	// Persistent state in memory
 	CurrentTerm uint
@@ -75,22 +73,40 @@ type ConsensusModule[j any] struct {
 	Log         []LogEntry[j]
 }
 
-func (c *ConsensusModule[j]) ResetTicker() {
+func NewConsensusModule[j any, k any](contact Contact[j]) *ConsensusModule[j, k] {
+	cm := &ConsensusModule[j, k]{
+		Mutex: new(sync.Mutex),
+		Id:    uint(rand.Uint64()),
+		State: Follower,
+
+		ReceiveChan: new(chan k),
+		Contact:     contact,
+
+		CurrentTerm: 0,
+		VotedFor:    -1,
+		Log:         *new([]LogEntry[j]),
+	}
+	cm.SetTicker()
+	cm.ResetTicker()
+	return cm
+}
+
+func (c *ConsensusModule[j, k]) ResetTicker() {
 	c.Ticker = time.NewTicker(c.TickerDuration)
 }
-func (c *ConsensusModule[j]) Get(index int) LogEntry[j] {
+func (c *ConsensusModule[j, k]) Get(index int) LogEntry[j] {
 	c.Mutex.Lock()
 	defer c.Mutex.Unlock()
 	return c.Log[index]
 }
 
-func (c *ConsensusModule[j]) Set(values []LogEntry[j]) {
+func (c *ConsensusModule[j, k]) Set(values []LogEntry[j]) {
 	c.Mutex.Lock()
 	defer c.Mutex.Unlock()
 	c.Log = append(c.Log, values...)
 }
 
-func (c *ConsensusModule[j]) SetTicker() {
+func (c *ConsensusModule[j, k]) SetTicker() {
 	if c.State != Leader {
 		ri := rand.Intn(500)
 		for ri < 250 {
@@ -108,33 +124,45 @@ func (c *ConsensusModule[j]) SetTicker() {
 	c.ResetTicker()
 }
 
-func (c *ConsensusModule[j]) RunServer(done <-chan any) {
+func (c *ConsensusModule[j, k]) Vote(request RequestVote[j]) Reply {
+	return Reply{
+		Term:        c.CurrentTerm,
+		VoteGranted: true,
+	}
+}
+
+func (c *ConsensusModule[j, k]) AppendEntry(entry AppendEntries[j]) Reply {
+	return Reply{
+		Term:        c.CurrentTerm,
+		VoteGranted: true,
+	}
+}
+func (c *ConsensusModule[j, k]) RunServer(done <-chan bool) {
 main:
 	for {
 		select {
 		case <-done:
 			break main
+		case <-*c.ReceiveChan:
+			c.ResetTicker()
 		case <-c.Ticker.C:
-			var serverRequestVote RequestVote[*j]
+			var serverRequestVote RequestVote[j]
 			if len(c.Log) == 0 {
-				serverRequestVote = RequestVote[*j]{
+				serverRequestVote = RequestVote[j]{
 					Term:         c.CurrentTerm + 1,
 					CandidateId:  c.Id,
 					LastLogIndex: 1,
-					LastLogTerm:  new(j),
+					LastLogTerm:  *new(j),
 				}
 			} else {
-				serverRequestVote = RequestVote[*j]{
+				serverRequestVote = RequestVote[j]{
 					Term:         c.CurrentTerm + 1,
 					CandidateId:  c.Id,
 					LastLogIndex: uint(len(c.Log) + 1),
-					LastLogTerm:  &c.Log[len(c.Log)-1].Command,
+					LastLogTerm:  c.Log[len(c.Log)-1].Command,
 				}
 			}
-			_, err := c.Contact.RequestVotes(serverRequestVote)
-			if err != nil {
-				panic(err)
-			}
+			_ = c.Contact.RequestVotes(serverRequestVote)
 		}
 	}
 }
