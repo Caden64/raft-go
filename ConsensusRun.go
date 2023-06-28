@@ -33,22 +33,13 @@ main:
 				if vc > len(votes)/2 {
 					c.State = Leader
 					c.SetTicker()
-					var heartbeat AppendEntries[j]
-					if len(c.Log) == 0 {
-						heartbeat = c.heartbeat(true)
-					} else {
-						heartbeat = c.heartbeat(false)
-					}
+					heartbeat := c.heartbeat()
 					c.Contact.AppendEntries(heartbeat)
+
 					fmt.Println(c.Id, "is leader ticks at", c.TickerDuration)
 				}
 			} else if c.State == Leader {
-				var heartbeat AppendEntries[j]
-				if len(c.Log) == 0 {
-					heartbeat = c.heartbeat(true)
-				} else {
-					heartbeat = c.heartbeat(false)
-				}
+				heartbeat := c.heartbeat()
 				c.Contact.AppendEntries(heartbeat)
 			} else {
 				c.State = Follower

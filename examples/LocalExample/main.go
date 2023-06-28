@@ -18,14 +18,14 @@ func main() {
 		fmt.Println(peer)
 	}
 	var wg sync.WaitGroup
-	wg.Add(1)
+	wg.Add(3)
 	go s1.RunServer(cx.Done)
 	go s2.RunServer(cx.Done)
 	go s3.RunServer(cx.Done)
 	wg.Wait()
 }
 
-type ContactExample[j any, k any] struct {
+type ContactExample[j comparable, k any] struct {
 	Peers []*raft.ConsensusModule[j, k]
 	Done  <-chan k
 }

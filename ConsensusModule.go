@@ -15,7 +15,7 @@ const (
 	Leader
 )
 
-type Contact[j any, k any] interface {
+type Contact[j comparable, k any] interface {
 	GetPeerIds() []uint
 	RequestVotes(vote RequestVote[j]) []Reply
 	AppendEntries(entries AppendEntries[j]) []Reply
@@ -30,19 +30,19 @@ func (s ConsensusModuleState) String() string {
 	case Leader:
 		return "Leader"
 	default:
-		panic("Unknown State")
+		return "Invalid"
 	}
 }
 
-type LogEntry[j any] struct {
+type LogEntry[j comparable] struct {
 	Command j
 	Term    uint
 }
 
-type RequestVote[j any] struct {
+type RequestVote[j comparable] struct {
 	Term         uint
 	CandidateId  uint
-	LastLogIndex uint
+	LastLogIndex int
 	LastLogTerm  j
 }
 
@@ -51,16 +51,16 @@ type Reply struct {
 	VoteGranted bool
 }
 
-type AppendEntries[j any] struct {
-	Term     uint
-	LeaderId uint
-
-	PrevLogIndex uint
+type AppendEntries[j comparable] struct {
+	Term         uint
+	LeaderId     uint
+	PrevLogIndex int
 	PrevLogTerm  j
 	Entries      []LogEntry[j]
+	LeaderCommit uint
 }
 
-type ConsensusModule[j any, k any] struct {
+type ConsensusModule[j comparable, k any] struct {
 	Mutex *sync.Mutex
 	Id    uint
 	// Volatile state in memory
@@ -78,7 +78,7 @@ type ConsensusModule[j any, k any] struct {
 	Log         []LogEntry[j]
 }
 
-func NewConsensusModule[j any, k any](contact Contact[j, k]) *ConsensusModule[j, k] {
+func NewConsensusModule[j comparable, k any](contact Contact[j, k]) *ConsensusModule[j, k] {
 	cm := &ConsensusModule[j, k]{
 		Mutex: new(sync.Mutex),
 		Id:    uint(rand.Uint64()),
@@ -136,53 +136,55 @@ func (c *ConsensusModule[j, k]) SetTicker() {
 }
 
 func (c *ConsensusModule[j, k]) Vote(request RequestVote[j]) Reply {
-	if c.VotedFor == -1 {
-		fmt.Println("Gave vote to:", request.CandidateId, "From:", c.Id)
-		c.VotedFor = int(request.CandidateId)
-		return Reply{
-			Term:        c.CurrentTerm,
-			VoteGranted: true,
+	if c.VotedFor == -1 && request.Term >= c.CurrentTerm {
+		nodeLastLogLen, nodeLastLogTerm := c.lastLog()
+		if (request.LastLogIndex == nodeLastLogLen && nodeLastLogTerm == request.LastLogTerm) || request.LastLogIndex > nodeLastLogLen {
+			fmt.Println("Gave vote to:", request.CandidateId, "From:", c.Id)
+			c.VotedFor = int(request.CandidateId)
+			return Reply{
+				Term:        c.CurrentTerm,
+				VoteGranted: true,
+			}
 		}
+	}
+	return Reply{
+		Term:        c.CurrentTerm,
+		VoteGranted: false,
+	}
+}
+
+func (c *ConsensusModule[j, k]) lastLog() (int, j) {
+	if len(c.Log) == 0 {
+		return 0, *new(j)
 	} else {
-		return Reply{
-			Term:        c.CurrentTerm,
-			VoteGranted: false,
-		}
+		return len(c.Log), c.Log[len(c.Log)-1].Command
 	}
 }
 
 func (c *ConsensusModule[j, k]) AppendEntry(entry AppendEntries[j]) Reply {
-	if len(entry.Entries) == 0 {
-		c.CurrentTerm = entry.Term
-		c.VotedFor = -1
-		c.SetTicker()
+
+	if entry.Term >= c.CurrentTerm && len(entry.Entries) == 0 && entry.PrevLogIndex == -1 && entry.PrevLogTerm == *new(j) {
+		if len(entry.Entries) == 0 {
+			c.CurrentTerm = entry.Term
+			c.VotedFor = -1
+			c.SetTicker()
+		}
 	}
 	return Reply{
 		Term:        c.CurrentTerm,
-		VoteGranted: true,
+		VoteGranted: false,
 	}
 }
 
-func (c *ConsensusModule[j, k]) heartbeat(newHb bool) AppendEntries[j] {
-	var hb AppendEntries[j]
-	if newHb {
-		hb = AppendEntries[j]{
-			Term:         c.CurrentTerm,
-			LeaderId:     c.Id,
-			PrevLogIndex: 1,
-			PrevLogTerm:  *new(j),
-			Entries:      []LogEntry[j]{},
-		}
-	} else {
-		hb = AppendEntries[j]{
-			Term:         c.CurrentTerm,
-			LeaderId:     c.Id,
-			PrevLogIndex: uint(len(c.Log) + 1),
-			PrevLogTerm:  c.Log[len(c.Log)-1].Command,
-			Entries:      []LogEntry[j]{},
-		}
+func (c *ConsensusModule[j, k]) heartbeat() AppendEntries[j] {
+	return AppendEntries[j]{
+		Term:         c.CurrentTerm,
+		LeaderId:     c.Id,
+		PrevLogIndex: -1,
+		PrevLogTerm:  *new(j),
+		Entries:      []LogEntry[j]{},
+		LeaderCommit: uint(len(c.Log)),
 	}
-	return hb
 }
 
 func (c *ConsensusModule[j, k]) NewRequestVote(newCM bool) RequestVote[j] {
@@ -198,7 +200,7 @@ func (c *ConsensusModule[j, k]) NewRequestVote(newCM bool) RequestVote[j] {
 		serverRequestVote = RequestVote[j]{
 			Term:         c.CurrentTerm,
 			CandidateId:  c.Id,
-			LastLogIndex: uint(len(c.Log) + 1),
+			LastLogIndex: len(c.Log) + 1,
 			LastLogTerm:  c.Log[len(c.Log)-1].Command,
 		}
 	}
