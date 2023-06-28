@@ -97,7 +97,12 @@ func NewConsensusModule[j any, k any](contact Contact[j, k]) *ConsensusModule[j,
 }
 
 func (c *ConsensusModule[j, k]) ResetTicker() {
-	c.Ticker = time.NewTicker(c.TickerDuration)
+	// fmt.Println(c.Id, " Ticker reset")
+	if c.Ticker == nil {
+		c.Ticker = time.NewTicker(c.TickerDuration)
+	} else {
+		c.Ticker.Reset(c.TickerDuration)
+	}
 }
 func (c *ConsensusModule[j, k]) Get(index int) LogEntry[j] {
 	c.Mutex.Lock()
@@ -114,14 +119,14 @@ func (c *ConsensusModule[j, k]) Set(values []LogEntry[j]) {
 func (c *ConsensusModule[j, k]) SetTicker() {
 	if c.State != Leader {
 		ri := rand.Intn(500)
-		for ri < 250 {
+		for ri < 350 {
 			ri = rand.Intn(500)
 		}
 		c.TickerDuration = time.Duration(ri) * time.Millisecond
 	} else {
-		ri := rand.Intn(150)
-		for ri < 50 {
-			ri = rand.Intn(150)
+		ri := rand.Intn(100)
+		for ri < 25 {
+			ri = rand.Intn(100)
 		}
 		c.TickerDuration = time.Duration(ri) * time.Millisecond
 	}
@@ -130,16 +135,26 @@ func (c *ConsensusModule[j, k]) SetTicker() {
 }
 
 func (c *ConsensusModule[j, k]) Vote(request RequestVote[j]) Reply {
-	fmt.Println("Gave vote to: ", request.CandidateId, "From: ", c.Id)
-	return Reply{
-		Term:        c.CurrentTerm,
-		VoteGranted: true,
+	if c.VotedFor == -1 {
+		fmt.Println("Gave vote to: ", request.CandidateId, "From: ", c.Id)
+		c.VotedFor = int(request.CandidateId)
+		return Reply{
+			Term:        c.CurrentTerm,
+			VoteGranted: true,
+		}
+	} else {
+		return Reply{
+			Term:        c.CurrentTerm,
+			VoteGranted: false,
+		}
 	}
 }
 
 func (c *ConsensusModule[j, k]) AppendEntry(entry AppendEntries[j]) Reply {
 	if len(entry.Entries) == 0 {
-		c.ResetTicker()
+		c.CurrentTerm = entry.Term
+		c.VotedFor = -1
+		c.SetTicker()
 	}
 	return Reply{
 		Term:        c.CurrentTerm,
@@ -156,9 +171,10 @@ main:
 			c.ResetTicker()
 		case <-c.Ticker.C:
 			if c.State == Follower {
+				fmt.Println(c.Id, " ticker duration: ", c.TickerDuration)
 				c.State = Candidate
 				c.CurrentTerm++
-				fmt.Println("Vote: ", c.Id)
+				fmt.Println(c.Id, "started vote")
 				var serverRequestVote RequestVote[j]
 				if len(c.Log) == 0 {
 					serverRequestVote = RequestVote[j]{
@@ -176,59 +192,61 @@ main:
 					}
 				}
 				votes := c.Contact.RequestVotes(serverRequestVote)
-				fmt.Println("Got votes", c.Id)
+				fmt.Println(c.Id, " got ", len(votes), " votes")
 				var vc int
 				for _, vote := range votes {
 					if vote.VoteGranted {
+						fmt.Println("Vote granted")
 						vc++
+					} else {
+						fmt.Println("Vote Denied")
 					}
 				}
 				if vc > len(votes)/2 {
 					c.State = Leader
 					c.SetTicker()
-					fmt.Println("Should be leader")
 					var heartbeat AppendEntries[j]
 					if len(c.Log) == 0 {
-						heartbeat = AppendEntries[j]{
-							Term:         c.CurrentTerm,
-							LeaderId:     c.Id,
-							PrevLogIndex: 1,
-							PrevLogTerm:  *new(j),
-							Entries:      []LogEntry[j]{},
-						}
+						heartbeat = c.heartbeat(true)
 					} else {
-						heartbeat = AppendEntries[j]{
-							Term:         c.CurrentTerm,
-							LeaderId:     c.Id,
-							PrevLogIndex: uint(len(c.Log) + 1),
-							PrevLogTerm:  c.Log[len(c.Log)-1].Command,
-							Entries:      []LogEntry[j]{},
-						}
+						heartbeat = c.heartbeat(false)
 					}
 					c.Contact.AppendEntries(heartbeat)
-					fmt.Println("Should be leader always")
+					fmt.Println(c.Id, " is leader")
 				}
 			} else if c.State == Leader {
 				var heartbeat AppendEntries[j]
 				if len(c.Log) == 0 {
-					heartbeat = AppendEntries[j]{
-						Term:         c.CurrentTerm,
-						LeaderId:     c.Id,
-						PrevLogIndex: 1,
-						PrevLogTerm:  *new(j),
-						Entries:      []LogEntry[j]{},
-					}
+					heartbeat = c.heartbeat(true)
 				} else {
-					heartbeat = AppendEntries[j]{
-						Term:         c.CurrentTerm,
-						LeaderId:     c.Id,
-						PrevLogIndex: uint(len(c.Log) + 1),
-						PrevLogTerm:  c.Log[len(c.Log)-1].Command,
-						Entries:      []LogEntry[j]{},
-					}
+					heartbeat = c.heartbeat(false)
 				}
 				c.Contact.AppendEntries(heartbeat)
+			} else {
+				c.State = Follower
 			}
 		}
 	}
+}
+
+func (c *ConsensusModule[j, k]) heartbeat(newHb bool) AppendEntries[j] {
+	var hb AppendEntries[j]
+	if newHb {
+		hb = AppendEntries[j]{
+			Term:         c.CurrentTerm,
+			LeaderId:     c.Id,
+			PrevLogIndex: 1,
+			PrevLogTerm:  *new(j),
+			Entries:      []LogEntry[j]{},
+		}
+	} else {
+		hb = AppendEntries[j]{
+			Term:         c.CurrentTerm,
+			LeaderId:     c.Id,
+			PrevLogIndex: uint(len(c.Log) + 1),
+			PrevLogTerm:  c.Log[len(c.Log)-1].Command,
+			Entries:      []LogEntry[j]{},
+		}
+	}
+	return hb
 }

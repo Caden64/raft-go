@@ -57,9 +57,6 @@ func (c *ContactExample[j, k]) GetPeerIds() []uint {
 func (c *ContactExample[j, k]) RequestVotes(vote raft.RequestVote[j]) []raft.Reply {
 	var replies []raft.Reply
 	for _, peer := range c.Peers {
-		if peer.Id == vote.CandidateId {
-			continue
-		}
 		peer := peer
 		voteResponse := peer.Vote(vote)
 		replies = append(replies, voteResponse)
