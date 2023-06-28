@@ -104,6 +104,7 @@ func (c *ConsensusModule[j, k]) ResetTicker() {
 		c.Ticker.Reset(c.TickerDuration)
 	}
 }
+
 func (c *ConsensusModule[j, k]) Get(index int) LogEntry[j] {
 	c.Mutex.Lock()
 	defer c.Mutex.Unlock()
@@ -118,15 +119,15 @@ func (c *ConsensusModule[j, k]) Set(values []LogEntry[j]) {
 
 func (c *ConsensusModule[j, k]) SetTicker() {
 	if c.State != Leader {
-		ri := rand.Intn(500)
-		for ri < 350 {
-			ri = rand.Intn(500)
+		ri := rand.Intn(450)
+		for ri < 250 {
+			ri = rand.Intn(450)
 		}
 		c.TickerDuration = time.Duration(ri) * time.Millisecond
 	} else {
-		ri := rand.Intn(100)
-		for ri < 25 {
-			ri = rand.Intn(100)
+		ri := rand.Intn(200)
+		for ri < 50 {
+			ri = rand.Intn(200)
 		}
 		c.TickerDuration = time.Duration(ri) * time.Millisecond
 	}
@@ -136,7 +137,7 @@ func (c *ConsensusModule[j, k]) SetTicker() {
 
 func (c *ConsensusModule[j, k]) Vote(request RequestVote[j]) Reply {
 	if c.VotedFor == -1 {
-		fmt.Println("Gave vote to: ", request.CandidateId, "From: ", c.Id)
+		fmt.Println("Gave vote to:", request.CandidateId, "From:", c.Id)
 		c.VotedFor = int(request.CandidateId)
 		return Reply{
 			Term:        c.CurrentTerm,
@@ -161,73 +162,6 @@ func (c *ConsensusModule[j, k]) AppendEntry(entry AppendEntries[j]) Reply {
 		VoteGranted: true,
 	}
 }
-func (c *ConsensusModule[j, k]) RunServer(done <-chan bool) {
-main:
-	for {
-		select {
-		case <-done:
-			break main
-		case <-*c.ReceiveChan:
-			c.ResetTicker()
-		case <-c.Ticker.C:
-			if c.State == Follower {
-				fmt.Println(c.Id, " ticker duration: ", c.TickerDuration)
-				c.State = Candidate
-				c.CurrentTerm++
-				fmt.Println(c.Id, "started vote")
-				var serverRequestVote RequestVote[j]
-				if len(c.Log) == 0 {
-					serverRequestVote = RequestVote[j]{
-						Term:         c.CurrentTerm,
-						CandidateId:  c.Id,
-						LastLogIndex: 1,
-						LastLogTerm:  *new(j),
-					}
-				} else {
-					serverRequestVote = RequestVote[j]{
-						Term:         c.CurrentTerm,
-						CandidateId:  c.Id,
-						LastLogIndex: uint(len(c.Log) + 1),
-						LastLogTerm:  c.Log[len(c.Log)-1].Command,
-					}
-				}
-				votes := c.Contact.RequestVotes(serverRequestVote)
-				fmt.Println(c.Id, " got ", len(votes), " votes")
-				var vc int
-				for _, vote := range votes {
-					if vote.VoteGranted {
-						fmt.Println("Vote granted")
-						vc++
-					} else {
-						fmt.Println("Vote Denied")
-					}
-				}
-				if vc > len(votes)/2 {
-					c.State = Leader
-					c.SetTicker()
-					var heartbeat AppendEntries[j]
-					if len(c.Log) == 0 {
-						heartbeat = c.heartbeat(true)
-					} else {
-						heartbeat = c.heartbeat(false)
-					}
-					c.Contact.AppendEntries(heartbeat)
-					fmt.Println(c.Id, " is leader")
-				}
-			} else if c.State == Leader {
-				var heartbeat AppendEntries[j]
-				if len(c.Log) == 0 {
-					heartbeat = c.heartbeat(true)
-				} else {
-					heartbeat = c.heartbeat(false)
-				}
-				c.Contact.AppendEntries(heartbeat)
-			} else {
-				c.State = Follower
-			}
-		}
-	}
-}
 
 func (c *ConsensusModule[j, k]) heartbeat(newHb bool) AppendEntries[j] {
 	var hb AppendEntries[j]
@@ -249,4 +183,25 @@ func (c *ConsensusModule[j, k]) heartbeat(newHb bool) AppendEntries[j] {
 		}
 	}
 	return hb
+}
+
+func (c *ConsensusModule[j, k]) NewRequestVote(newCM bool) RequestVote[j] {
+	var serverRequestVote RequestVote[j]
+	if newCM {
+		serverRequestVote = RequestVote[j]{
+			Term:         c.CurrentTerm,
+			CandidateId:  c.Id,
+			LastLogIndex: 1,
+			LastLogTerm:  *new(j),
+		}
+	} else {
+		serverRequestVote = RequestVote[j]{
+			Term:         c.CurrentTerm,
+			CandidateId:  c.Id,
+			LastLogIndex: uint(len(c.Log) + 1),
+			LastLogTerm:  c.Log[len(c.Log)-1].Command,
+		}
+	}
+
+	return serverRequestVote
 }
