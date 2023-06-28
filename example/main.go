@@ -7,34 +7,34 @@ import (
 )
 
 func main() {
-	cl := new(ContactLol[string, bool])
-	s1 := raft.NewConsensusModule[string, bool](cl)
-	s2 := raft.NewConsensusModule[string, bool](cl)
-	s3 := raft.NewConsensusModule[string, bool](cl)
-	cl.AddPeer(s1)
-	cl.AddPeer(s2)
-	cl.AddPeer(s3)
-	for _, peer := range cl.GetPeerIds() {
+	cx := new(ContactExample[string, bool])
+	s1 := raft.NewConsensusModule[string, bool](cx)
+	s2 := raft.NewConsensusModule[string, bool](cx)
+	s3 := raft.NewConsensusModule[string, bool](cx)
+	cx.AddPeer(s1)
+	cx.AddPeer(s2)
+	cx.AddPeer(s3)
+	for _, peer := range cx.GetPeerIds() {
 		fmt.Println(peer)
 	}
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go s1.RunServer(cl.Done)
-	go s2.RunServer(cl.Done)
-	go s3.RunServer(cl.Done)
+	go s1.RunServer(cx.Done)
+	go s2.RunServer(cx.Done)
+	go s3.RunServer(cx.Done)
 	wg.Wait()
 }
 
-type ContactLol[j any, k any] struct {
+type ContactExample[j any, k any] struct {
 	Peers []*raft.ConsensusModule[j, k]
 	Done  <-chan k
 }
 
-func (c *ContactLol[j, k]) AddPeer(module *raft.ConsensusModule[j, k]) {
+func (c *ContactExample[j, k]) AddPeer(module *raft.ConsensusModule[j, k]) {
 	c.Peers = append(c.Peers, module)
 }
 
-func (c *ContactLol[j, k]) GetPeerIds() []uint {
+func (c *ContactExample[j, k]) GetPeerIds() []uint {
 	var final []uint
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -54,7 +54,7 @@ func (c *ContactLol[j, k]) GetPeerIds() []uint {
 	return final
 }
 
-func (c *ContactLol[j, k]) RequestVotes(vote raft.RequestVote[j]) []raft.Reply {
+func (c *ContactExample[j, k]) RequestVotes(vote raft.RequestVote[j]) []raft.Reply {
 	var replies []raft.Reply
 	for _, peer := range c.Peers {
 		if peer.Id == vote.CandidateId {
@@ -68,7 +68,7 @@ func (c *ContactLol[j, k]) RequestVotes(vote raft.RequestVote[j]) []raft.Reply {
 	return replies
 }
 
-func (c *ContactLol[j, k]) AppendEntries(entries raft.AppendEntries[j]) []raft.Reply {
+func (c *ContactExample[j, k]) AppendEntries(entries raft.AppendEntries[j]) []raft.Reply {
 	var replies []raft.Reply
 	for _, peer := range c.Peers {
 		if peer.Id == entries.LeaderId {
