@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"fmt"
 	"math/rand"
 	"sync"
 	"time"
@@ -55,9 +56,8 @@ type AppendEntries[j any] struct {
 	LeaderId uint
 
 	PrevLogIndex uint
-	PrevLogTerm  uint
+	PrevLogTerm  j
 	Entries      []LogEntry[j]
-	LeaderCommit uint
 }
 
 type ConsensusModule[j any, k any] struct {
@@ -129,14 +129,18 @@ func (c *ConsensusModule[j, k]) SetTicker() {
 	c.ResetTicker()
 }
 
-func (c *ConsensusModule[j, k]) Vote(_ RequestVote[j]) Reply {
+func (c *ConsensusModule[j, k]) Vote(request RequestVote[j]) Reply {
+	fmt.Println("Gave vote to: ", request.CandidateId, "From: ", c.Id)
 	return Reply{
 		Term:        c.CurrentTerm,
 		VoteGranted: true,
 	}
 }
 
-func (c *ConsensusModule[j, k]) AppendEntry(_ AppendEntries[j]) Reply {
+func (c *ConsensusModule[j, k]) AppendEntry(entry AppendEntries[j]) Reply {
+	if len(entry.Entries) == 0 {
+		c.ResetTicker()
+	}
 	return Reply{
 		Term:        c.CurrentTerm,
 		VoteGranted: true,
@@ -151,23 +155,80 @@ main:
 		case <-*c.ReceiveChan:
 			c.ResetTicker()
 		case <-c.Ticker.C:
-			var serverRequestVote RequestVote[j]
-			if len(c.Log) == 0 {
-				serverRequestVote = RequestVote[j]{
-					Term:         c.CurrentTerm + 1,
-					CandidateId:  c.Id,
-					LastLogIndex: 1,
-					LastLogTerm:  *new(j),
+			if c.State == Follower {
+				c.State = Candidate
+				c.CurrentTerm++
+				fmt.Println("Vote: ", c.Id)
+				var serverRequestVote RequestVote[j]
+				if len(c.Log) == 0 {
+					serverRequestVote = RequestVote[j]{
+						Term:         c.CurrentTerm,
+						CandidateId:  c.Id,
+						LastLogIndex: 1,
+						LastLogTerm:  *new(j),
+					}
+				} else {
+					serverRequestVote = RequestVote[j]{
+						Term:         c.CurrentTerm,
+						CandidateId:  c.Id,
+						LastLogIndex: uint(len(c.Log) + 1),
+						LastLogTerm:  c.Log[len(c.Log)-1].Command,
+					}
 				}
-			} else {
-				serverRequestVote = RequestVote[j]{
-					Term:         c.CurrentTerm + 1,
-					CandidateId:  c.Id,
-					LastLogIndex: uint(len(c.Log) + 1),
-					LastLogTerm:  c.Log[len(c.Log)-1].Command,
+				votes := c.Contact.RequestVotes(serverRequestVote)
+				fmt.Println("Got votes", c.Id)
+				var vc int
+				for _, vote := range votes {
+					if vote.VoteGranted {
+						vc++
+					}
 				}
+				if vc > len(votes)/2 {
+					c.State = Leader
+					c.SetTicker()
+					fmt.Println("Should be leader")
+					var heartbeat AppendEntries[j]
+					if len(c.Log) == 0 {
+						heartbeat = AppendEntries[j]{
+							Term:         c.CurrentTerm,
+							LeaderId:     c.Id,
+							PrevLogIndex: 1,
+							PrevLogTerm:  *new(j),
+							Entries:      []LogEntry[j]{},
+						}
+					} else {
+						heartbeat = AppendEntries[j]{
+							Term:         c.CurrentTerm,
+							LeaderId:     c.Id,
+							PrevLogIndex: uint(len(c.Log) + 1),
+							PrevLogTerm:  c.Log[len(c.Log)-1].Command,
+							Entries:      []LogEntry[j]{},
+						}
+					}
+					c.Contact.AppendEntries(heartbeat)
+					fmt.Println("Should be leader always")
+				}
+			} else if c.State == Leader {
+				var heartbeat AppendEntries[j]
+				if len(c.Log) == 0 {
+					heartbeat = AppendEntries[j]{
+						Term:         c.CurrentTerm,
+						LeaderId:     c.Id,
+						PrevLogIndex: 1,
+						PrevLogTerm:  *new(j),
+						Entries:      []LogEntry[j]{},
+					}
+				} else {
+					heartbeat = AppendEntries[j]{
+						Term:         c.CurrentTerm,
+						LeaderId:     c.Id,
+						PrevLogIndex: uint(len(c.Log) + 1),
+						PrevLogTerm:  c.Log[len(c.Log)-1].Command,
+						Entries:      []LogEntry[j]{},
+					}
+				}
+				c.Contact.AppendEntries(heartbeat)
 			}
-			_ = c.Contact.RequestVotes(serverRequestVote)
 		}
 	}
 }

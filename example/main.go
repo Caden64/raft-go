@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	raft "raft-go"
 	"sync"
 )
@@ -8,7 +9,20 @@ import (
 func main() {
 	cl := new(ContactLol[string, bool])
 	s1 := raft.NewConsensusModule[string, bool](cl)
-	s1.RunServer(cl.Done)
+	s2 := raft.NewConsensusModule[string, bool](cl)
+	s3 := raft.NewConsensusModule[string, bool](cl)
+	cl.AddPeer(s1)
+	cl.AddPeer(s2)
+	cl.AddPeer(s3)
+	for _, peer := range cl.GetPeerIds() {
+		fmt.Println(peer)
+	}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go s1.RunServer(cl.Done)
+	go s2.RunServer(cl.Done)
+	go s3.RunServer(cl.Done)
+	wg.Wait()
 }
 
 type ContactLol[j any, k any] struct {
@@ -42,40 +56,27 @@ func (c *ContactLol[j, k]) GetPeerIds() []uint {
 
 func (c *ContactLol[j, k]) RequestVotes(vote raft.RequestVote[j]) []raft.Reply {
 	var replies []raft.Reply
-	var mu sync.Mutex
-	var wg sync.WaitGroup
 	for _, peer := range c.Peers {
-		wg.Add(1)
+		if peer.Id == vote.CandidateId {
+			continue
+		}
 		peer := peer
-		go func(cm *raft.ConsensusModule[j, k]) {
-			cm.Mutex.Lock()
-			mu.Lock()
-			defer mu.Unlock()
-			defer wg.Done()
-			defer mu.Lock()
-			voteResponse := cm.Vote(vote)
-			replies = append(replies, voteResponse)
-		}(peer)
+		voteResponse := peer.Vote(vote)
+		replies = append(replies, voteResponse)
 	}
+	fmt.Println("Giving votes to node")
 	return replies
 }
 
 func (c *ContactLol[j, k]) AppendEntries(entries raft.AppendEntries[j]) []raft.Reply {
 	var replies []raft.Reply
-	var mu sync.Mutex
-	var wg sync.WaitGroup
 	for _, peer := range c.Peers {
-		wg.Add(1)
+		if peer.Id == entries.LeaderId {
+			continue
+		}
 		peer := peer
-		go func(cm *raft.ConsensusModule[j, k]) {
-			cm.Mutex.Lock()
-			mu.Lock()
-			defer mu.Unlock()
-			defer wg.Done()
-			defer mu.Lock()
-			appendResponse := cm.AppendEntry(entries)
-			replies = append(replies, appendResponse)
-		}(peer)
+		appendResponse := peer.AppendEntry(entries)
+		replies = append(replies, appendResponse)
 	}
 	return replies
 }
