@@ -3,7 +3,7 @@ package raft
 import "fmt"
 
 func (c *ConsensusModule[j, k]) handleCandidate() {
-	fmt.Println(c.Id, "started vote")
+	fmt.Println(c.Id, "started election")
 	var serverRequestVote RequestVote[j]
 	if len(c.Log) == 0 {
 		serverRequestVote = c.NewRequestVote(true)
@@ -21,4 +21,20 @@ func (c *ConsensusModule[j, k]) handleCandidate() {
 		c.State = Leader
 		c.SetTicker()
 	}
+}
+
+func (c *ConsensusModule[j, k]) validCandidate() bool {
+	var request RequestVote[j]
+	if len(c.Log) == 0 {
+		request = c.NewRequestVote(true)
+	} else {
+		request = c.NewRequestVote(false)
+	}
+	if c.VotedFor == -1 && request.Term >= c.CurrentTerm {
+		nodeLastLogLen, nodeLastLogTerm := c.lastLog()
+		if (request.LastLogIndex == nodeLastLogLen && nodeLastLogTerm == request.LastLogTerm) || request.LastLogIndex > nodeLastLogLen {
+			return true
+		}
+	}
+	return false
 }

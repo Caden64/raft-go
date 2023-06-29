@@ -61,16 +61,24 @@ type AppendEntries[j comparable] struct {
 }
 
 type ConsensusModule[j comparable, k any] struct {
-	Mutex *sync.Mutex
-	Id    uint
-	// Volatile state in memory
+	Mutex          *sync.Mutex
+	Id             uint
 	State          ConsensusModuleState
 	Ticker         *time.Ticker
 	TickerDuration time.Duration
 
-	ReceiveChan *chan k
+	// Volatile state in memory
+	LeaderId    uint
+	CommitIndex uint
+	LastApplied uint
 
-	Contact Contact[j, k]
+	// Volatile state for leaders
+	NextIndex  []uint
+	MatchIndex []uint
+
+	// Concurrent API communication
+	ReceiveChan *chan k
+	Contact     Contact[j, k]
 
 	// Persistent state in memory
 	CurrentTerm uint
@@ -139,7 +147,7 @@ func (c *ConsensusModule[j, k]) Vote(request RequestVote[j]) Reply {
 	if c.VotedFor == -1 && request.Term >= c.CurrentTerm {
 		nodeLastLogLen, nodeLastLogTerm := c.lastLog()
 		if (request.LastLogIndex == nodeLastLogLen && nodeLastLogTerm == request.LastLogTerm) || request.LastLogIndex > nodeLastLogLen {
-			fmt.Println("Gave vote to:", request.CandidateId, "From:", c.Id)
+			fmt.Println("Gave vote to:", request.CandidateId, "From:", c.Id, "During term", c.CurrentTerm, "For term", request.Term)
 			c.VotedFor = int(request.CandidateId)
 			return Reply{
 				Term:        c.CurrentTerm,

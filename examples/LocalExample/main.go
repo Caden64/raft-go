@@ -2,8 +2,9 @@ package main
 
 import (
 	"fmt"
-	raft "raft-go"
 	"sync"
+
+	raft "raft-go"
 )
 
 func main() {
@@ -61,7 +62,7 @@ func (c *ContactExample[j, k]) RequestVotes(vote raft.RequestVote[j]) []raft.Rep
 		voteResponse := peer.Vote(vote)
 		replies = append(replies, voteResponse)
 	}
-	fmt.Println("Giving votes to node")
+	fmt.Println("Giving votes to node", vote.CandidateId)
 	return replies
 }
 
