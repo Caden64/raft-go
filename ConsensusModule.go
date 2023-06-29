@@ -162,7 +162,6 @@ func (c *ConsensusModule[j, k]) lastLog() (int, j) {
 }
 
 func (c *ConsensusModule[j, k]) AppendEntry(entry AppendEntries[j]) Reply {
-
 	if entry.Term >= c.CurrentTerm && len(entry.Entries) == 0 && entry.PrevLogIndex == -1 && entry.PrevLogTerm == *new(j) {
 		c.CurrentTerm = entry.Term
 		c.VotedFor = -1
