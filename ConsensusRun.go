@@ -27,7 +27,6 @@ main:
 				for _, vote := range votes {
 					if vote.VoteGranted {
 						vc++
-					} else {
 					}
 				}
 				if vc > len(votes)/2 {
