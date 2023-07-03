@@ -1,9 +1,6 @@
 package raft
 
-import "fmt"
-
 func (c *ConsensusModule[j, k]) handleCandidate() {
-	fmt.Println(c.Id, "started election")
 	var serverRequestVote RequestVote[j]
 	if len(c.Log) == 0 {
 		serverRequestVote = c.NewRequestVote(true)

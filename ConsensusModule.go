@@ -1,7 +1,6 @@
 package raft
 
 import (
-	"fmt"
 	"math/rand"
 	"sync"
 	"time"
@@ -17,8 +16,12 @@ const (
 
 type Contact[j comparable, k any] interface {
 	GetPeerIds() []uint
+	GetLeader() uint
 	RequestVotes(vote RequestVote[j]) []Reply
 	AppendEntries(entries AppendEntries[j]) []Reply
+	ValidLogEntryCommand(j) bool
+	ExecuteLogEntryCommand(uint, j) error
+	DefaultLogEntryCommand() j
 }
 
 func (s ConsensusModuleState) String() string {
@@ -147,7 +150,6 @@ func (c *ConsensusModule[j, k]) Vote(request RequestVote[j]) Reply {
 	if c.VotedFor == -1 && request.Term >= c.CurrentTerm {
 		nodeLastLogLen, nodeLastLogTerm := c.lastLog()
 		if (request.LastLogIndex == nodeLastLogLen && nodeLastLogTerm == request.LastLogTerm) || request.LastLogIndex > nodeLastLogLen {
-			fmt.Println("Gave vote to:", request.CandidateId, "From:", c.Id, "During term", c.CurrentTerm, "For term", request.Term)
 			c.VotedFor = int(request.CandidateId)
 			return Reply{
 				Term:        c.CurrentTerm,
