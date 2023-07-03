@@ -34,11 +34,11 @@ func main() {
 
 type ContactExample[j string, k bool] struct {
 	Leader uint
-	Peers  []*raft.ConsensusModule[string, k]
+	Peers  []*raft.ConsensusModule[j, k]
 	Done   <-chan k
 }
 
-func (c *ContactExample[j, k]) AddPeer(module *raft.ConsensusModule[string, k]) {
+func (c *ContactExample[j, k]) AddPeer(module *raft.ConsensusModule[j, k]) {
 	c.Peers = append(c.Peers, module)
 }
 
@@ -49,7 +49,7 @@ func (c *ContactExample[j, k]) GetPeerIds() []uint {
 	for _, peer := range c.Peers {
 		wg.Add(1)
 		peer := peer
-		go func(cm *raft.ConsensusModule[string, k]) {
+		go func(cm *raft.ConsensusModule[j, k]) {
 			cm.Mutex.Lock()
 			mu.Lock()
 			defer mu.Unlock()
@@ -62,7 +62,7 @@ func (c *ContactExample[j, k]) GetPeerIds() []uint {
 	return final
 }
 
-func (c *ContactExample[j, k]) RequestVotes(vote raft.RequestVote[string]) []raft.Reply {
+func (c *ContactExample[j, k]) RequestVotes(vote raft.RequestVote[j]) []raft.Reply {
 	var replies []raft.Reply
 	for _, peer := range c.Peers {
 		peer := peer
@@ -72,7 +72,7 @@ func (c *ContactExample[j, k]) RequestVotes(vote raft.RequestVote[string]) []raf
 	return replies
 }
 
-func (c *ContactExample[j, k]) AppendEntries(entries raft.AppendEntries[string]) []raft.Reply {
+func (c *ContactExample[j, k]) AppendEntries(entries raft.AppendEntries[j]) []raft.Reply {
 	var replies []raft.Reply
 	for _, peer := range c.Peers {
 		if peer.Id == entries.LeaderId {
@@ -119,8 +119,8 @@ func (c *ContactExample[j, k]) ExecuteLogEntryCommand(server uint, operation j) 
 			return func() error {
 				peer.Mutex.Lock()
 				defer peer.Mutex.Unlock()
-				logEntry := raft.LogEntry[string]{
-					Command: string(operation),
+				logEntry := raft.LogEntry[j]{
+					Command: operation,
 					Term:    peer.CurrentTerm,
 				}
 				peer.Log = append(peer.Log, logEntry)
@@ -137,4 +137,15 @@ func (c *ContactExample[j, k]) ExecuteLogEntryCommand(server uint, operation j) 
 
 func (c *ContactExample[j, k]) DefaultLogEntryCommand() j {
 	return "NEXT"
+}
+
+func (c *ContactExample[j, k]) GetLeaderLog() []raft.LogEntry[j] {
+	leader := c.GetLeader()
+	for _, peer := range c.Peers {
+		peer := peer
+		if peer.Id == leader {
+			return peer.Log
+		}
+	}
+	return nil
 }

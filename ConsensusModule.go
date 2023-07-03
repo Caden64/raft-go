@@ -17,6 +17,7 @@ const (
 type Contact[j comparable, k any] interface {
 	GetPeerIds() []uint
 	GetLeader() uint
+	GetLeaderLog() []LogEntry[j]
 	RequestVotes(vote RequestVote[j]) []Reply
 	AppendEntries(entries AppendEntries[j]) []Reply
 	ValidLogEntryCommand(j) bool
