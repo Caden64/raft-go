@@ -28,7 +28,17 @@ func main() {
 	time.Sleep(time.Second * 1)
 	cx.Leader = cx.GetLeader()
 	fmt.Println(cx.Leader)
-	cx.ValidLogEntryCommand("SET 50")
+	elcx := cx.GetExactLeader()
+	for _, peer := range cx.Peers {
+		peer.AppendEntry(raft.AppendEntries[string]{
+			Term:         elcx.CurrentTerm,
+			LeaderId:     cx.Leader,
+			PrevLogTerm:  "",
+			PrevLogIndex: 1,
+			Entries:      []raft.LogEntry[string]{{Term: elcx.CurrentTerm, Command: "SET 50"}},
+		},
+		)
+	}
 	wg.Wait()
 }
 
@@ -74,10 +84,9 @@ func (c *ContactExample[j, k]) RequestVotes(vote raft.RequestVote[j]) []raft.Rep
 
 func (c *ContactExample[j, k]) AppendEntries(entries raft.AppendEntries[j]) []raft.Reply {
 	var replies []raft.Reply
+	// cl := c.GetExactLeader().Log
+	// fmt.Println(checkLog)
 	for _, peer := range c.Peers {
-		if peer.Id == entries.LeaderId {
-			continue
-		}
 		peer := peer
 		appendResponse := peer.AppendEntry(entries)
 		replies = append(replies, appendResponse)
@@ -92,6 +101,15 @@ func (c *ContactExample[j, k]) GetLeader() uint {
 		}
 	}
 	return 0
+}
+
+func (c *ContactExample[j, k]) GetExactLeader() *raft.ConsensusModule[j, k] {
+	for _, peer := range c.Peers {
+		if peer.State == raft.Leader {
+			return peer
+		}
+	}
+	return nil
 }
 
 func (c *ContactExample[j, k]) ValidLogEntryCommand(operation j) bool {

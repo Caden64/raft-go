@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"fmt"
 	"math/rand"
 	"sync"
 	"time"
@@ -101,7 +102,12 @@ func NewConsensusModule[j comparable, k any](contact Contact[j, k]) *ConsensusMo
 
 		CurrentTerm: 0,
 		VotedFor:    -1,
-		Log:         *new([]LogEntry[j]),
+		Log: []LogEntry[j]{
+			{
+				Command: contact.DefaultLogEntryCommand(),
+				Term:    0,
+			},
+		},
 	}
 	cm.SetTicker()
 	cm.ResetTicker()
@@ -109,7 +115,6 @@ func NewConsensusModule[j comparable, k any](contact Contact[j, k]) *ConsensusMo
 }
 
 func (c *ConsensusModule[j, k]) ResetTicker() {
-	// fmt.Println(c.Id, " Ticker reset")
 	if c.Ticker == nil {
 		c.Ticker = time.NewTicker(c.TickerDuration)
 	} else {
@@ -166,17 +171,33 @@ func (c *ConsensusModule[j, k]) Vote(request RequestVote[j]) Reply {
 
 func (c *ConsensusModule[j, k]) lastLog() (int, j) {
 	if len(c.Log) == 0 {
-		return 0, *new(j)
+		return 1, *new(j)
 	} else {
 		return len(c.Log), c.Log[len(c.Log)-1].Command
 	}
 }
 
-func (c *ConsensusModule[j, k]) AppendEntry(entry AppendEntries[j]) Reply {
-	if entry.Term >= c.CurrentTerm && len(entry.Entries) == 0 && entry.PrevLogIndex == -1 && entry.PrevLogTerm == *new(j) {
-		c.CurrentTerm = entry.Term
+func (c *ConsensusModule[j, k]) AppendEntry(entries AppendEntries[j]) Reply {
+	lastIndex, lastLog := c.lastLog()
+	if entries.Term >= c.CurrentTerm && len(entries.Entries) == 0 && entries.PrevLogIndex == lastIndex && entries.PrevLogTerm == lastLog {
+		c.CurrentTerm = entries.Term
 		c.VotedFor = -1
 		c.SetTicker()
+		return Reply{
+			Term:        c.CurrentTerm,
+			VoteGranted: true,
+		}
+	} else if len(entries.Entries) > 0 && (entries.PrevLogIndex == lastIndex && entries.PrevLogTerm == lastLog) {
+		for _, entry := range entries.Entries {
+			if !c.Contact.ValidLogEntryCommand(entry.Command) {
+				return Reply{
+					Term:        c.CurrentTerm,
+					VoteGranted: false,
+				}
+			}
+		}
+		c.Log = append(c.Log, entries.Entries...)
+		fmt.Println(c.Id, "Log updated")
 		return Reply{
 			Term:        c.CurrentTerm,
 			VoteGranted: true,
