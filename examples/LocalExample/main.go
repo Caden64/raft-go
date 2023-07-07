@@ -34,9 +34,9 @@ func main() {
 		PrevLogIndex: len(elcx.Log),
 		Entries:      []raft.LogEntry[string]{{Term: elcx.CurrentTerm, Command: "SET 50"}},
 	}
-	elcx.AppendEntry(entry, nil)
+	elcx.AppendEntry(entry)
 	for _, peer := range cx.Peers {
-		peer.AppendEntry(entry, elcx.Log)
+		peer.AppendEntry(entry)
 	}
 	wg.Wait()
 }
@@ -89,7 +89,7 @@ func (c *ContactExample[j, x, k]) AppendEntries(entries raft.AppendEntries[j]) [
 		if peer.State == raft.Leader {
 			continue
 		}
-		appendResponse := peer.AppendEntry(entries, cl)
+		appendResponse := peer.AppendEntry(entries)
 		replies = append(replies, appendResponse)
 	}
 	return replies

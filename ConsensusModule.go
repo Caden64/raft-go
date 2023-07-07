@@ -154,9 +154,9 @@ func (c *ConsensusModule[j, x, k]) lastLog() (int, j) {
 	}
 }
 
-func (c *ConsensusModule[j, x, k]) AppendEntry(entries AppendEntries[j], ll []LogEntry[j]) Reply {
+func (c *ConsensusModule[j, x, k]) AppendEntry(entries AppendEntries[j]) Reply {
 	lastIndex, lastLog := c.lastLog()
-
+	ll := c.Contact.GetLeaderLog()
 	c.Contact.LogValue(ll)
 	c.Contact.LogValue(c.Log)
 	if entries.Term >= c.CurrentTerm && len(entries.Entries) == 0 && entries.PrevLogIndex == lastIndex && entries.PrevLogTerm == lastLog && c.Contact.ValidLog(ll) && c.Contact.LogValue(ll) == c.Contact.LogValue(c.Log) {
@@ -179,6 +179,7 @@ func (c *ConsensusModule[j, x, k]) AppendEntry(entries AppendEntries[j], ll []Lo
 		}
 		c.Log = append(c.Log, entries.Entries...)
 		if c.State != Leader && ll != nil && len(ll) != len(c.Log) {
+			// Need to add proper getting of missing logs
 			c.Log = ll
 		}
 		fmt.Println(c.Id, "Log updated")
