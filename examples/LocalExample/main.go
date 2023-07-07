@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -12,10 +11,10 @@ import (
 )
 
 func main() {
-	cx := new(ContactExample[string, bool])
-	s1 := raft.NewConsensusModule[string, bool](cx)
-	s2 := raft.NewConsensusModule[string, bool](cx)
-	s3 := raft.NewConsensusModule[string, bool](cx)
+	cx := new(ContactExample[string, int, bool])
+	s1 := raft.NewConsensusModule[string, int, bool](cx)
+	s2 := raft.NewConsensusModule[string, int, bool](cx)
+	s3 := raft.NewConsensusModule[string, int, bool](cx)
 	cx.AddPeer(s1)
 	cx.AddPeer(s2)
 	cx.AddPeer(s3)
@@ -24,42 +23,42 @@ func main() {
 	go s1.RunServer(cx.Done)
 	go s2.RunServer(cx.Done)
 	go s3.RunServer(cx.Done)
-
 	time.Sleep(time.Second * 1)
 	cx.Leader = cx.GetLeader()
 	fmt.Println(cx.Leader)
 	elcx := cx.GetExactLeader()
+	entry := raft.AppendEntries[string]{
+		Term:         elcx.CurrentTerm,
+		LeaderId:     cx.Leader,
+		PrevLogTerm:  elcx.Log[len(elcx.Log)-1].Command,
+		PrevLogIndex: len(elcx.Log),
+		Entries:      []raft.LogEntry[string]{{Term: elcx.CurrentTerm, Command: "SET 50"}},
+	}
+	elcx.AppendEntry(entry, nil)
 	for _, peer := range cx.Peers {
-		peer.AppendEntry(raft.AppendEntries[string]{
-			Term:         elcx.CurrentTerm,
-			LeaderId:     cx.Leader,
-			PrevLogTerm:  "",
-			PrevLogIndex: 1,
-			Entries:      []raft.LogEntry[string]{{Term: elcx.CurrentTerm, Command: "SET 50"}},
-		},
-		)
+		peer.AppendEntry(entry, elcx.Log)
 	}
 	wg.Wait()
 }
 
-type ContactExample[j string, k bool] struct {
+type ContactExample[j string, x int, k bool] struct {
 	Leader uint
-	Peers  []*raft.ConsensusModule[j, k]
+	Peers  []*raft.ConsensusModule[j, x, k]
 	Done   <-chan k
 }
 
-func (c *ContactExample[j, k]) AddPeer(module *raft.ConsensusModule[j, k]) {
+func (c *ContactExample[j, x, k]) AddPeer(module *raft.ConsensusModule[j, x, k]) {
 	c.Peers = append(c.Peers, module)
 }
 
-func (c *ContactExample[j, k]) GetPeerIds() []uint {
+func (c *ContactExample[j, x, k]) GetPeerIds() []uint {
 	var final []uint
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	for _, peer := range c.Peers {
 		wg.Add(1)
 		peer := peer
-		go func(cm *raft.ConsensusModule[j, k]) {
+		go func(cm *raft.ConsensusModule[j, x, k]) {
 			cm.Mutex.Lock()
 			mu.Lock()
 			defer mu.Unlock()
@@ -72,7 +71,7 @@ func (c *ContactExample[j, k]) GetPeerIds() []uint {
 	return final
 }
 
-func (c *ContactExample[j, k]) RequestVotes(vote raft.RequestVote[j]) []raft.Reply {
+func (c *ContactExample[j, x, k]) RequestVotes(vote raft.RequestVote[j]) []raft.Reply {
 	var replies []raft.Reply
 	for _, peer := range c.Peers {
 		peer := peer
@@ -82,19 +81,21 @@ func (c *ContactExample[j, k]) RequestVotes(vote raft.RequestVote[j]) []raft.Rep
 	return replies
 }
 
-func (c *ContactExample[j, k]) AppendEntries(entries raft.AppendEntries[j]) []raft.Reply {
+func (c *ContactExample[j, x, k]) AppendEntries(entries raft.AppendEntries[j]) []raft.Reply {
 	var replies []raft.Reply
-	// cl := c.GetExactLeader().Log
-	// fmt.Println(checkLog)
+	cl := c.GetExactLeader().Log
+	cl = append(cl, entries.Entries...)
 	for _, peer := range c.Peers {
-		peer := peer
-		appendResponse := peer.AppendEntry(entries)
+		if peer.State == raft.Leader {
+			continue
+		}
+		appendResponse := peer.AppendEntry(entries, cl)
 		replies = append(replies, appendResponse)
 	}
 	return replies
 }
 
-func (c *ContactExample[j, k]) GetLeader() uint {
+func (c *ContactExample[j, x, k]) GetLeader() uint {
 	for _, peer := range c.Peers {
 		if peer.State == raft.Leader {
 			return peer.Id
@@ -103,7 +104,7 @@ func (c *ContactExample[j, k]) GetLeader() uint {
 	return 0
 }
 
-func (c *ContactExample[j, k]) GetExactLeader() *raft.ConsensusModule[j, k] {
+func (c *ContactExample[j, x, k]) GetExactLeader() *raft.ConsensusModule[j, x, k] {
 	for _, peer := range c.Peers {
 		if peer.State == raft.Leader {
 			return peer
@@ -112,7 +113,7 @@ func (c *ContactExample[j, k]) GetExactLeader() *raft.ConsensusModule[j, k] {
 	return nil
 }
 
-func (c *ContactExample[j, k]) ValidLogEntryCommand(operation j) bool {
+func (c *ContactExample[j, x, k]) ValidLogEntryCommand(operation j) bool {
 	if strings.HasPrefix(string(operation), "SET") && len(operation) >= 5 {
 		operationValues := strings.SplitN(string(operation), " ", 2)
 		if len(operationValues) > 1 {
@@ -127,43 +128,44 @@ func (c *ContactExample[j, k]) ValidLogEntryCommand(operation j) bool {
 	return false
 }
 
-func (c *ContactExample[j, k]) ExecuteLogEntryCommand(server uint, operation j) error {
-	if !c.ValidLogEntryCommand(operation) {
-		return errors.New("invalid log entry command")
-	}
-	for _, peer := range c.Peers {
-		peer := peer
-		if peer.Id == server {
-			return func() error {
-				peer.Mutex.Lock()
-				defer peer.Mutex.Unlock()
-				logEntry := raft.LogEntry[j]{
-					Command: operation,
-					Term:    peer.CurrentTerm,
-				}
-				peer.Log = append(peer.Log, logEntry)
-				if strings.HasPrefix(string(operation), "SET") {
-					logEntry.Command = "NEXT"
-					peer.Log = append(peer.Log, logEntry)
-				}
-				return nil
-			}()
-		}
-	}
-	return errors.New("unable to find node")
+func (c *ContactExample[j, x, k]) ExecuteLog(_ uint, _ []j) error {
+	return nil
 }
 
-func (c *ContactExample[j, k]) DefaultLogEntryCommand() j {
+func (c *ContactExample[j, x, k]) DefaultLogEntryCommand() j {
 	return "NEXT"
 }
 
-func (c *ContactExample[j, k]) GetLeaderLog() []raft.LogEntry[j] {
-	leader := c.GetLeader()
-	for _, peer := range c.Peers {
-		peer := peer
-		if peer.Id == leader {
-			return peer.Log
+func (c *ContactExample[j, x, k]) GetLeaderLog() []raft.LogEntry[j] {
+	return c.GetExactLeader().Log
+}
+
+func (c *ContactExample[j, x, k]) ValidLog(log []raft.LogEntry[j]) bool {
+	final := true
+	for _, item := range log {
+		if !c.ValidLogEntryCommand(item.Command) {
+			final = false
+			break
 		}
 	}
-	return nil
+	return final
+}
+
+func (c *ContactExample[j, x, k]) LogValue(log []raft.LogEntry[j]) x {
+	total := 0
+	for _, item := range log {
+		if strings.HasPrefix(string(item.Command), "SET ") {
+			values := strings.SplitN(string(item.Command), " ", 2)
+			value, err := strconv.Atoi(values[1])
+			if err != nil {
+				return -1
+			}
+			total += value
+		} else if string(item.Command) == "NEXT" {
+
+		} else {
+			return -1
+		}
+	}
+	return x(total)
 }

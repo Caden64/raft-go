@@ -15,28 +15,17 @@ const (
 	Leader
 )
 
-type Contact[j comparable, k any] interface {
+type Contact[j, x comparable, k any] interface {
 	GetPeerIds() []uint
 	GetLeader() uint
 	GetLeaderLog() []LogEntry[j]
 	RequestVotes(vote RequestVote[j]) []Reply
 	AppendEntries(entries AppendEntries[j]) []Reply
 	ValidLogEntryCommand(j) bool
-	ExecuteLogEntryCommand(uint, j) error
+	ValidLog([]LogEntry[j]) bool
+	ExecuteLog(uint, []j) error
 	DefaultLogEntryCommand() j
-}
-
-func (s ConsensusModuleState) String() string {
-	switch s {
-	case Follower:
-		return "Follower"
-	case Candidate:
-		return "Candidate"
-	case Leader:
-		return "Leader"
-	default:
-		return "Invalid"
-	}
+	LogValue([]LogEntry[j]) x
 }
 
 type LogEntry[j comparable] struct {
@@ -65,7 +54,7 @@ type AppendEntries[j comparable] struct {
 	LeaderCommit uint
 }
 
-type ConsensusModule[j comparable, k any] struct {
+type ConsensusModule[j, x comparable, k any] struct {
 	Mutex          *sync.Mutex
 	Id             uint
 	State          ConsensusModuleState
@@ -83,7 +72,7 @@ type ConsensusModule[j comparable, k any] struct {
 
 	// Concurrent API communication
 	ReceiveChan *chan k
-	Contact     Contact[j, k]
+	Contact     Contact[j, x, k]
 
 	// Persistent state in memory
 	CurrentTerm uint
@@ -91,8 +80,8 @@ type ConsensusModule[j comparable, k any] struct {
 	Log         []LogEntry[j]
 }
 
-func NewConsensusModule[j comparable, k any](contact Contact[j, k]) *ConsensusModule[j, k] {
-	cm := &ConsensusModule[j, k]{
+func NewConsensusModule[j, x comparable, k any](contact Contact[j, x, k]) *ConsensusModule[j, x, k] {
+	cm := &ConsensusModule[j, x, k]{
 		Mutex: new(sync.Mutex),
 		Id:    uint(rand.Uint64()),
 		State: Follower,
@@ -114,7 +103,7 @@ func NewConsensusModule[j comparable, k any](contact Contact[j, k]) *ConsensusMo
 	return cm
 }
 
-func (c *ConsensusModule[j, k]) ResetTicker() {
+func (c *ConsensusModule[j, x, k]) ResetTicker() {
 	if c.Ticker == nil {
 		c.Ticker = time.NewTicker(c.TickerDuration)
 	} else {
@@ -122,19 +111,7 @@ func (c *ConsensusModule[j, k]) ResetTicker() {
 	}
 }
 
-func (c *ConsensusModule[j, k]) Get(index int) LogEntry[j] {
-	c.Mutex.Lock()
-	defer c.Mutex.Unlock()
-	return c.Log[index]
-}
-
-func (c *ConsensusModule[j, k]) Set(values []LogEntry[j]) {
-	c.Mutex.Lock()
-	defer c.Mutex.Unlock()
-	c.Log = append(c.Log, values...)
-}
-
-func (c *ConsensusModule[j, k]) SetTicker() {
+func (c *ConsensusModule[j, x, k]) SetTicker() {
 	if c.State != Leader {
 		ri := rand.Intn(450)
 		for ri < 250 {
@@ -152,7 +129,7 @@ func (c *ConsensusModule[j, k]) SetTicker() {
 	c.ResetTicker()
 }
 
-func (c *ConsensusModule[j, k]) Vote(request RequestVote[j]) Reply {
+func (c *ConsensusModule[j, x, k]) Vote(request RequestVote[j]) Reply {
 	if c.VotedFor == -1 && request.Term >= c.CurrentTerm {
 		nodeLastLogLen, nodeLastLogTerm := c.lastLog()
 		if (request.LastLogIndex == nodeLastLogLen && nodeLastLogTerm == request.LastLogTerm) || request.LastLogIndex > nodeLastLogLen {
@@ -169,7 +146,7 @@ func (c *ConsensusModule[j, k]) Vote(request RequestVote[j]) Reply {
 	}
 }
 
-func (c *ConsensusModule[j, k]) lastLog() (int, j) {
+func (c *ConsensusModule[j, x, k]) lastLog() (int, j) {
 	if len(c.Log) == 0 {
 		return 1, *new(j)
 	} else {
@@ -177,9 +154,12 @@ func (c *ConsensusModule[j, k]) lastLog() (int, j) {
 	}
 }
 
-func (c *ConsensusModule[j, k]) AppendEntry(entries AppendEntries[j]) Reply {
+func (c *ConsensusModule[j, x, k]) AppendEntry(entries AppendEntries[j], ll []LogEntry[j]) Reply {
 	lastIndex, lastLog := c.lastLog()
-	if entries.Term >= c.CurrentTerm && len(entries.Entries) == 0 && entries.PrevLogIndex == lastIndex && entries.PrevLogTerm == lastLog {
+
+	c.Contact.LogValue(ll)
+	c.Contact.LogValue(c.Log)
+	if entries.Term >= c.CurrentTerm && len(entries.Entries) == 0 && entries.PrevLogIndex == lastIndex && entries.PrevLogTerm == lastLog && c.Contact.ValidLog(ll) && c.Contact.LogValue(ll) == c.Contact.LogValue(c.Log) {
 		c.CurrentTerm = entries.Term
 		c.VotedFor = -1
 		c.SetTicker()
@@ -190,6 +170,7 @@ func (c *ConsensusModule[j, k]) AppendEntry(entries AppendEntries[j]) Reply {
 	} else if len(entries.Entries) > 0 && (entries.PrevLogIndex == lastIndex && entries.PrevLogTerm == lastLog) {
 		for _, entry := range entries.Entries {
 			if !c.Contact.ValidLogEntryCommand(entry.Command) {
+				fmt.Println("Not valid command")
 				return Reply{
 					Term:        c.CurrentTerm,
 					VoteGranted: false,
@@ -197,6 +178,9 @@ func (c *ConsensusModule[j, k]) AppendEntry(entries AppendEntries[j]) Reply {
 			}
 		}
 		c.Log = append(c.Log, entries.Entries...)
+		if c.State != Leader && ll != nil && len(ll) != len(c.Log) {
+			c.Log = ll
+		}
 		fmt.Println(c.Id, "Log updated")
 		return Reply{
 			Term:        c.CurrentTerm,
@@ -209,7 +193,7 @@ func (c *ConsensusModule[j, k]) AppendEntry(entries AppendEntries[j]) Reply {
 	}
 }
 
-func (c *ConsensusModule[j, k]) heartbeat() AppendEntries[j] {
+func (c *ConsensusModule[j, x, k]) heartbeat() AppendEntries[j] {
 	return AppendEntries[j]{
 		Term:         c.CurrentTerm,
 		LeaderId:     c.Id,
@@ -220,7 +204,7 @@ func (c *ConsensusModule[j, k]) heartbeat() AppendEntries[j] {
 	}
 }
 
-func (c *ConsensusModule[j, k]) NewRequestVote(newCM bool) RequestVote[j] {
+func (c *ConsensusModule[j, x, k]) NewRequestVote(newCM bool) RequestVote[j] {
 	var serverRequestVote RequestVote[j]
 	if newCM {
 		serverRequestVote = RequestVote[j]{

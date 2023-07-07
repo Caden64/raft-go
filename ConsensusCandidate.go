@@ -1,6 +1,6 @@
 package raft
 
-func (c *ConsensusModule[j, k]) handleCandidate() {
+func (c *ConsensusModule[j, k, x]) handleCandidate() {
 	var serverRequestVote RequestVote[j]
 	if len(c.Log) == 0 {
 		serverRequestVote = c.NewRequestVote(true)
@@ -20,7 +20,7 @@ func (c *ConsensusModule[j, k]) handleCandidate() {
 	}
 }
 
-func (c *ConsensusModule[j, k]) validCandidate() bool {
+func (c *ConsensusModule[j, k, x]) validCandidate() bool {
 	var request RequestVote[j]
 	if len(c.Log) == 0 {
 		request = c.NewRequestVote(true)

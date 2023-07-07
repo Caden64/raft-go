@@ -1,6 +1,6 @@
 package raft
 
-func (c *ConsensusModule[j, k]) RunServer(done <-chan bool) {
+func (c *ConsensusModule[j, k, x]) RunServer(done <-chan bool) {
 main:
 	for {
 		select {
